@@ -9,7 +9,7 @@ from io import BytesIO
 
 # --- Flask setup ---
 app = Flask(__name__)
-app.secret_key = "cs50 final project"
+app.secret_key = os.environ.get("SECRET_KEY", "fallback_key")
 app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 progress = 0
 
@@ -118,3 +118,4 @@ def favicon():
 # --- Run app ---
 if __name__ == "__main__":
     app.run(debug=True)
+
