@@ -3,26 +3,20 @@ from flask import Flask, render_template, request, redirect, send_file, flash, s
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import RequestEntityTooLarge
 import fitz
-import tempfile
 from io import BytesIO
-
 
 # --- Flask setup ---
 app = Flask(__name__)
-app.secret_key = "cs50 final project"
-app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
-progress = 0
-
+app.secret_key = os.environ.get("SECRET_KEY", "cs50 final project")
+app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024  # 150 MB
 
 def allowed_file(filename):
     return ("." in filename) and (filename.rsplit(".", 1)[1].lower() in ["pdf"])
-
 
 @app.errorhandler(RequestEntityTooLarge)
 def handle_file_too_large(e):
     flash("File too large. Maximum allowed size is 150 MB.", "danger")
     return redirect("/")
-
 
 # --- Routes ---
 @app.route("/", methods=["GET"])
@@ -31,10 +25,8 @@ def index():
         session["progress"] = 0
     return render_template("index.html")
 
-
 @app.route("/upload", methods=["POST"])
 def upload():
-    # session-based progress tracking
     session["progress"] = 0
     session.modified = True
 
@@ -49,63 +41,75 @@ def upload():
 
     if file and allowed_file(file.filename):
         filename = secure_filename(file.filename)
-        output = fitz.open()
 
-        with tempfile.TemporaryDirectory() as temp:
-            filedir = os.path.join(temp, filename)
-            file.save(filedir)
-            try:
-                input_doc = fitz.open(filedir)
-            except Exception:
-                flash("Couldn't open the file", "danger")
+        try:
+            file_bytes = file.read()
+            input_doc = fitz.open(stream=file_bytes, filetype="pdf")
+        except Exception:
+            flash("Couldn't open the file", "danger")
+            return redirect("/")
+
+        try:
+            new_width = 595
+            output = fitz.open()
+
+            total_pages = len(input_doc)
+            if total_pages == 0:
+                flash("PDF has no pages.", "danger")
+                input_doc.close()
                 return redirect("/")
 
-            new_width = 595
-            BATCH_SIZE = 10
+            for page_number in range(total_pages):
+                try:
+                    page = input_doc.load_page(page_number)
+                except Exception:
+                    flash(f"Error on page {page_number}", "danger")
+                    input_doc.close()
+                    output.close()
+                    return redirect("/")
 
-            batches = []
+                old_rect = page.rect
+                scale_factor = new_width / old_rect.width
+                new_height = old_rect.height * scale_factor
 
-            for i in range(0, len(input_doc), BATCH_SIZE):
-                output_doc = fitz.open()
-                for page_number in range(i, min(i + BATCH_SIZE, len(input_doc))):
-                    try:
-                        page = input_doc.load_page(page_number)
-                    except Exception:
-                        flash(f"Error on page {page_number}", "danger")
-                        return redirect("/")
-                    old_rect = page.rect
-                    scale_factor = new_width / old_rect.width
-                    new_height = old_rect.height * scale_factor
+                new_page = output.new_page(width=new_width, height=new_height)
+                new_page.show_pdf_page(new_page.rect, input_doc, page_number)
 
-                    new_page = output_doc.new_page(width=new_width, height=new_height)
-                    new_page.show_pdf_page(new_page.rect, input_doc, page_number)
-                    session["progress"] = (page_number / len(input_doc)) * 100
-                    session.modified = True
-                out = os.path.join(temp, f"batch_{i // BATCH_SIZE}.pdf")
-                output_doc.save(out)
-                output_doc.close()
-                batches.append(out)
+                session["progress"] = int(((page_number + 1) / total_pages) * 100)
+                session.modified = True
+
             input_doc.close()
 
-            for f in batches:
-                with fitz.open(f) as batch:
-                    output.insert_pdf(batch)
+            output_bytes = BytesIO()
+            output.save(output_bytes)
+            output.close()
+            output_bytes.seek(0)
+            session["progress"] = 100
+            session.modified = True
 
+            @after_this_request
+            def progress_0(response):
+                flash("Successfully Completed!! Enjoy!!", "success")
+                return response
 
-        output_bytes = BytesIO()
-        output.save(output_bytes)
-        output.close()
-        output_bytes.seek(0)
-        session["progress"] = 100
-        session.modified = True
-        
-        
-        @after_this_request
-        def progress_0(response):
-            flash("Successfully Completed!! Enjoy!!", "success")
-            return response
-
-        return send_file(output_bytes, as_attachment=True, download_name=f"resized_{filename}", mimetype="application/pdf")
+            return send_file(
+                output_bytes,
+                as_attachment=True,
+                download_name=f"resized_{filename}",
+                mimetype="application/pdf",
+            )
+        except Exception as e:
+            # Clean up well and give the user an error
+            try:
+                input_doc.close()
+            except Exception:
+                pass
+            try:
+                output.close()
+            except Exception:
+                pass
+            flash(f"Unexpected error during processing: {str(e)}", "danger")
+            return redirect("/")
 
     flash("Invalid file type!! only PDFs allowed.", "danger")
     return redirect("/")
