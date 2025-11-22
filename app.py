@@ -9,7 +9,7 @@ from io import BytesIO
 
 # --- Flask setup ---
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "fallback_key")
+app.secret_key = "cs50 final project"
 app.config["MAX_CONTENT_LENGTH"] = 150 * 1024 * 1024
 progress = 0
 
@@ -27,12 +27,16 @@ def handle_file_too_large(e):
 # --- Routes ---
 @app.route("/", methods=["GET"])
 def index():
+    if "progress" not in session:
+        session["progress"] = 0
     return render_template("index.html")
 
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    global progress
+    # session-based progress tracking
+    session["progress"] = 0
+    session.modified = True
 
     if "file" not in request.files:
         flash("No file part!!", "danger")
@@ -75,7 +79,8 @@ def upload():
 
                     new_page = output_doc.new_page(width=new_width, height=new_height)
                     new_page.show_pdf_page(new_page.rect, input_doc, page_number)
-                    progress = (page_number / len(input_doc)) * 100
+                    session["progress"] = (page_number / len(input_doc)) * 100
+                    session.modified = True
                 out = os.path.join(temp, f"batch_{i // BATCH_SIZE}.pdf")
                 output_doc.save(out)
                 output_doc.close()
@@ -91,7 +96,8 @@ def upload():
         output.save(output_bytes)
         output.close()
         output_bytes.seek(0)
-        progress = 100
+        session["progress"] = 100
+        session.modified = True
         
         
         @after_this_request
@@ -106,7 +112,7 @@ def upload():
 
 @app.route("/progress")
 def progress_status():
-    return jsonify({"progress": progress})
+    return jsonify({"progress": session.get("progress", 0)})
 
 # --- Favicon route ---
 @app.route('/favicon.ico')
@@ -118,4 +124,3 @@ def favicon():
 # --- Run app ---
 if __name__ == "__main__":
     app.run(debug=True)
-
