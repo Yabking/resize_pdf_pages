@@ -1,0 +1,102 @@
+{% extends "layout.html" %}
+
+
+{% block content %}
+    {% with messages = get_flashed_messages(with_categories=True) %}
+        {% if messages %}
+            {% for c, message in messages %}
+                <div class="alert alert-{{c}}" role="alert">
+                {{message}}
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+
+<div class="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-lg text-center">
+    <h2 class="text-2xl font-bold mb-4 text-indigo-700">Upload Your PDF or Manhwa File</h2>
+    <p class="text-gray-600 mb-6">We’ll resize your pages for a consistent, smooth reading experience.</p>
+
+    <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data" class="space-y-6">
+        <!-- Dropzone -->
+        <div id="dropzone" 
+             class="border-2 border-dashed border-gray-400 rounded-lg py-12 px-6 bg-gray-50 hover:bg-gray-100 cursor-pointer transition">
+            <p class="text-gray-500" id="dropzone-text">Drag & drop your PDF here or click to select</p>
+            <input type="file" name="file" id="file" accept=".pdf" class="hidden" required>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="w-full bg-gray-200 rounded-full h-2.5 relative" id="progress-bar-big">
+            <div id="progress-bar" class="bg-indigo-600 h-2.5 rounded-full w-0"></div>
+            <span id="progress-percent" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-700"></span>
+        </div>
+
+        <button type="submit" 
+                class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-semibold transition">
+            Resize & Download
+        </button>
+    </form>
+
+    <p class="mt-6 text-sm text-gray-500">Your file never leaves this session — privacy guaranteed 🔒</p>
+</div>
+
+<script>
+const dropzone = document.getElementById("dropzone");
+const fileInput = document.getElementById("file");
+const form = document.getElementById("upload-form")
+const dropzoneText = document.getElementById("dropzone-text");
+const progressBar = document.getElementById("progress-bar");
+const progressBarbig = document.getElementById("progress-bar-big");
+
+// Click to open file dialog
+dropzone.addEventListener("click", () => fileInput.click());
+
+// Drag and drop
+dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("bg-indigo-50");
+});
+
+dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("bg-indigo-50");
+});
+
+dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("bg-indigo-50");
+    const file = e.dataTransfer.files[0];
+    if (file) {
+        fileInput.files = e.dataTransfer.files;
+        dropzoneText.textContent = `Selected: ${file.name}`;
+    }
+});
+
+
+form.addEventListener("submit", () => {
+    const prog = setInterval(async () => {
+    try {
+        const res = await fetch("/progress");
+        if (!res.ok) return;
+        const data = await res.json();
+
+        let p = Number(data.progress);
+        if (isNaN(p)) return;
+
+        if (p == 100) {
+            clearInterval(prog)
+            window.location.href = "/";
+            window.location.reload();
+        }
+        if (p <= 1) p = p * 100;
+        p = Math.max(0, Math.min(100, p));
+
+        progressBar.style.width = p + "%";
+        progressBar.setAttribute("aria-valuenow", Math.round(p));
+        document.getElementById("progress-percent").textContent = Math.round(p) + "%";
+    } catch (err) {
+        console.error("Failed to fetch progress:", err);
+    }
+}, 100);
+})
+</script>
+{% endblock %}
